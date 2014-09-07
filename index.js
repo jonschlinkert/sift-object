@@ -1,53 +1,63 @@
 var chalk = require('chalk');
 var _ = require('lodash');
 
-var utils = module.exports;
-
-var root = ['path', 'content', 'data'];
-
-var a = {name: 'test-layout-a', data: {title: 'test-layout-a'}, content: 'Test layout A content', ext: '.hbs'};
-var a2 = {foo: 'test-layout-a', data: {title: 'test-layout-a'}, content: 'Test layout A content', ext: '.hbs'};
-var b = {
-  'test-layout-b': {data: {title: 'test-layout-b'}, content: 'Test layout B content', layout: 'foo.md'}
-};
-var c = {path: 'test-layout-c', data: {title: 'test-layout-d'}, content: 'Test layout D content', layout: 'foo.md'};
-var d = {
-  'test-layout-e': {data: {title: 'test-layout-e'}, content: 'Test layout E content', layout: 'foo.md'},
-  zero1: {one: {'test-layout-f': {data: {title: 'test-layout-f'}, content: 'Test layout F content', layout: 'foo.md'}}},
-  'test-layout-g': {data: {title: 'test-layout-g'}, content: 'Test layout G content', layout: 'foo.md'},
-  zero2: {one: {'test-layout-h': {data: {title: 'test-layout-h'}, content: 'Test layout H content', layout: 'foo.md'}}},
-  zero3: {one: {'test-layout-i': {data: {title: 'test-layout-i'}, content: 'Test layout I content', layout: 'foo.md'}}},
+var expected = {
+  root: ['path', 'content', 'data'],
+  opts: ['isOpts'],
 };
 
-var siftProps = function(o, props) {
-  var keys = root.concat(props || []);
-  var non = _.omit(o, keys);
-  var file = _.pick(o, keys);
-  file.data = _.extend({}, non, o.data);
-  return file;
+function Normalize(obj) {
+  this.cache = obj || {};
+}
+Normalize.prototype.set = function (key, value) {
+  this.cache[key] = value;
+  return this;
 };
 
-
-var detectMissing = function(o, props) {
-  var req = root.concat(props || []);
-  return _.difference(req, _.keys(o));
+Normalize.prototype.get = function(key) {
+  return this.cache[key];
 };
 
-
-var expectedKeys = function(o, props) {
-  var req = root.concat(props || []);
-  return _.intersection(req, _.keys(o));
-};
-
-var objectLength = function(o) {
+Normalize.prototype.objectLength = function(o) {
   return _.keys(o).length;
 };
 
+Normalize.prototype.extend = function() {
+  var args = [].slice.call(arguments);
 
-var renameObject = function(acc, o) {
+  if (typeof args[0] === 'string') {
+    var o = this.get(args[0]) || {};
+    o = _.extend.apply(_, [o].concat(_.rest(args)));
+    this.set(args[0], o);
+    return this;
+  }
+  _.extend.apply(_, [this.cache].concat(args));
+  return this;
+};
+
+Normalize.prototype.fileObject = function fileObject(o) {
+  return _.reduce(o, function (acc, value, key, obj) {
+    if (this.rootKeys(obj).length > 1) {
+      this.extend(this.toObjectKey(obj));
+    } else if (this.rootKeys(value).length > 1) {
+      this.cache[key] = value;
+    } else if (typeof value === 'object') {
+      this.extend(this.fileObject(value));
+    }
+    return this.cache;
+  }.bind(this), {});
+};
+
+
+Normalize.prototype.toObjectKey = function(o) {
   var name = o.path || o.name;
+  var obj = _.values(o);
+  var acc = {};
+
   if (name) {
     acc[name] = o;
+  } else if (_.filter(obj, 'path').length > 0) {
+    return o;
   } else {
     var msg = 'template objects must have a `name` or `path` key:';
     throw new Error(
@@ -58,70 +68,63 @@ var renameObject = function(acc, o) {
   return acc;
 };
 
+// Normalize.prototype.isOptions = function(o, props) {
+//   var keys = ['isOpts'].concat(props || []);
+//   var file = _.pick(o, keys);
+//   var non = _.omit(o, keys);
+//   return file;
+// };
 
-var fileObject = function fileObject(o, props) {
-  return _.reduce(o, function (acc, value, key, obj) {
-    if (expectedKeys(obj).length > 1) {
-      acc = renameObject(acc, obj);
-    } else if (expectedKeys(value).length > 1) {
-      acc[key] = value;
-    } else {
-      _.extend(acc, fileObject(value));
-    }
-    return acc;
-  }, {});
+Normalize.prototype.siftProps = function(o, props) {
+  var keys = expected.root.concat(props || []);
+  var file = _.pick(o, keys);
+  var non = _.omit(o, keys);
+
+  file.data = _.extend({}, non, o.data);
+  return file;
 };
 
 
+/**
+ * Returns an array of root keys that **exist**
+ * on the given object.
+ *
+ * @param  {Object} `o`
+ * @param  {Array} `props`
+ * @return {Array}
+ */
 
-function Cache(obj) {
-  this.cache = obj || {};
-}
-Cache.prototype.set = function (key, value) {
-  this.cache[key] = value;
-  return this;
-};
-Cache.prototype.get = function(key) {
-  return this.cache[key];
-};
-Cache.prototype.extend = function() {
-  var args = [].slice.call(arguments);
-
-  if (typeof args[0] === 'string') {
-    var o = this.get(args[0]) || {};
-    o = _.extend.apply(_, [o].concat(_.rest(args)));
-    this.set(args[0], o);
-    return this;
-  }
-
-  _.extend.apply(_, [this.cache].concat(args));
-  return this;
-};
-
-Cache.prototype.fileObject = function fileObject(o, props) {
-  return _.reduce(o, function (acc, value, key, obj) {
-    if (expectedKeys(obj).length > 1) {
-      this.extend(renameObject(acc, obj));
-    } else if (expectedKeys(value).length > 1) {
-      this.cache[key] = value;
-    } else {
-      this.extend(this.fileObject(value));
-    }
-    return this.cache;
-  }.bind(this), {});
+Normalize.prototype.rootKeys = function(o, props) {
+  var keys = expected.root.concat(props || []);
+  return _.intersection(keys, _.keys(o));
 };
 
 
-var cache = new Cache();
+/**
+ * Returns an array of root keys that are **missing**
+ * on the given object.
+ *
+ * @param  {Object} `o`
+ * @param  {Array} `props`
+ * @return {Array}
+ */
 
-// cache.siftProps(a)
-// cache.detectMissing(a)
-// cache.objectLength(c)
-// cache.expectedKeys(c)
+Normalize.prototype.missingKeys = function(o, props) {
+  var root = expected.root.concat(props || []);
+  return _.difference(root, _.keys(o));
+};
 
-cache.fileObject(a)
-cache.fileObject(b)
-cache.fileObject(c)
-cache.fileObject(d)
+Normalize.prototype.ensurePathKey = function(arr) {
+  return _.contains(arr, 'path') || false;
+};
 
-console.log(cache.cache)
+Normalize.prototype.ensureDataKey = function(arr) {
+  return _.contains(arr, 'data') || false;
+};
+
+Normalize.prototype.ensureContentKey = function(arr) {
+  return _.contains(arr, 'content') || false;
+};
+
+
+module.exports = Normalize;
