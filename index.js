@@ -35,13 +35,26 @@ Normalize.prototype.extend = function() {
   return this;
 };
 
-Normalize.prototype.fileObject = function fileObject(o) {
+
+/**
+ * Roughly normalize an object to the structure we need.
+ * This method does very light property checking, its main
+ * purpose is to get objects formatted the same way so that
+ * other methods can do the scrubbing.
+ *
+ * @param  {Object} `o` Various object structures.
+ * @return {Object} Returns a roughly normalized object.
+ */
+
+Normalize.prototype.fileObject = function fileObject(o, options) {
+  var opts = _.extend({recurse: false}, options);
+
   return _.reduce(o, function (acc, value, key, obj) {
     if (this.rootKeys(obj).length > 1) {
       this.extend(this.toObjectKey(obj));
     } else if (this.rootKeys(value).length > 1) {
       this.cache[key] = value;
-    } else if (typeof value === 'object') {
+    } else if (typeof value === 'object' && opts.recurse) {
       this.extend(this.fileObject(value));
     }
     return this.cache;
@@ -49,25 +62,31 @@ Normalize.prototype.fileObject = function fileObject(o) {
 };
 
 
-Normalize.prototype.toObjectKey = function(o) {
-  var name = o.path || o.name;
-  var obj = _.values(o);
-  var acc = {};
+Normalize.prototype.toSpec = function toSpec(o) {
 
-  if (name) {
-    acc[name] = o;
-  } else if (_.filter(obj, 'path').length > 0) {
-    return o;
-  } else {
-    var msg = 'template objects must have a `name` or `path` key:';
-    throw new Error(
-      console.log(chalk.red('%s'), msg) +
-      console.log(chalk.yellow('%j'), o)
-    );
-  }
-  return acc;
 };
 
+
+Normalize.prototype.toObjectKey = function (o) {
+  return _.reduce(o, function (acc, value, key, obj) {
+
+    if (!/path|[\.\\\/]/.test(key) && !value.hasOwnProperty('path')) {
+      console.log(acc)
+      var msg = 'template objects must have a key defined as a path or `path` property:';
+      throw new Error(console.log(chalk.red('%s'), msg) + console.log(chalk.yellow('%j'), o));
+    }
+
+    if (key === 'path') {
+      acc[value] = obj;
+    } else if (!obj.hasOwnProperty('path')) {
+      value.path = value.path || key;
+      acc = obj;
+    }
+
+
+    return acc;
+  }, {});
+};
 // Normalize.prototype.isOptions = function(o, props) {
 //   var keys = ['isOpts'].concat(props || []);
 //   var file = _.pick(o, keys);
